@@ -1,3 +1,4 @@
+import { builtinModules } from "node:module"
 import { defineConfig } from "electron-vite"
 import { pickerPlugin } from "./scripts/picker"
 
@@ -55,6 +56,9 @@ export default defineConfig(({ command }) => ({
   main: {
     resolve: {
       dedupe: ["effect"],
+      // Vite and electron-vite read builtins from the runtime running the build. Under Bun they
+      // include Bun's ws shim, which Electron's Node does not provide, so ws must be bundled.
+      builtins: [...builtinModules.filter((id) => !id.includes(":") && id !== "ws"), /^node:/, /^bun:/],
     },
     define: {
       // Local renderer/server mode still uses the dev application identity and updater policy.
@@ -87,6 +91,15 @@ const require = __cjs_mod__.createRequire(import.meta.url);
       },
     },
     plugins: [
+      {
+        name: "opencode:bundle-ws",
+        enforce: "post",
+        config(config) {
+          const options = config.build?.rolldownOptions
+          if (!options || !Array.isArray(options.external)) return
+          options.external = options.external.filter((id) => id !== "ws" && id !== "node:ws")
+        },
+      },
       {
         name: "opencode:node-pty-narrower",
         enforce: "pre",

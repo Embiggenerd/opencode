@@ -82,6 +82,9 @@ test("bundles one Effect runtime and Drizzle while keeping native dependencies e
   expect(new Set(effect).size).toBe(effect.length)
   expect(imports).toContain("electron")
   expect(imports).toContain("node:sqlite")
+  // Bun reports its ws shim as a builtin, but Electron's Node can only load ws from the bundle.
+  expect(imports).not.toContain("ws")
+  expect(modules.some((id) => id.includes("/node_modules/ws/"))).toBe(true)
   expect(chunks.some((chunk) => chunk.dynamicImports.includes("@zip.js/zip.js"))).toBe(true)
   expect(imports).toContain(`@lydell/node-pty-${process.platform}-${process.arch}`)
   expect(modules.some((id) => id.includes("/node_modules/msgpackr"))).toBe(false)
