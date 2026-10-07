@@ -40,6 +40,7 @@ import { offlineModels } from "./fixture/models"
 import { promptLocationNode } from "./fixture/prompt-location"
 import { globalProjectNode } from "./lib/project"
 import { tmpdirScoped } from "./fixture/tmpdir"
+import { caseInsensitiveTmp, caseVariant } from "./lib/path-case"
 
 const it = testEffect(
   AppNodeBuilder.build(
@@ -101,6 +102,8 @@ void assertCreateInputTypes
 function withTmp<A, E, R>(f: (directory: string) => Effect.Effect<A, E, R>) {
   return tmpdirScoped().pipe(Effect.flatMap((tmp) => f(tmp.path)))
 }
+
+const caseInsensitiveIt = caseInsensitiveTmp ? it.live : it.live.skip
 
 describe("Session.create", () => {
   liveIt.live("preserves the project canonical directory when creating a session in another clone", () =>
@@ -442,6 +445,19 @@ describe("Session.create", () => {
 
       expect(child).toMatchObject({ parentID: parent.id, location })
     }),
+  )
+
+  caseInsensitiveIt("persists the on-disk directory when created from a case-variant path", () =>
+    withTmp((directory) =>
+      Effect.gen(function* () {
+        const session = yield* Session.Service
+        const created = yield* session.create({
+          location: Location.Ref.make({ directory: AbsolutePath.make(caseVariant(directory)) }),
+        })
+
+        expect((yield* session.get(created.id)).location.directory).toBe(AbsolutePath.make(directory))
+      }),
+    ),
   )
 
   it.effect("rejects child creation when the parent does not exist", () =>
@@ -1472,6 +1488,24 @@ describe("SessionTransfer", () => {
       ])
       expect(yield* Bus.latestSequence(db, sessionID)).toBe(4)
     }),
+  )
+
+  caseInsensitiveIt("imports into the on-disk directory from a case-variant path", () =>
+    withTmp((directory) =>
+      Effect.gen(function* () {
+        const session = yield* Session.Service
+        const transfer = yield* SessionTransfer.Service
+        const template = yield* session.create({ location, title: "Transfer source" })
+        const sessionID = Session.ID.create()
+
+        yield* transfer.import({
+          data: { info: { ...template, id: sessionID }, messages: [] },
+          location: Location.Ref.make({ directory: AbsolutePath.make(caseVariant(directory)) }),
+        })
+
+        expect((yield* session.get(sessionID)).location.directory).toBe(AbsolutePath.make(directory))
+      }),
+    ),
   )
 
   it.effect("rejects an existing session ID without changing its transcript", () =>

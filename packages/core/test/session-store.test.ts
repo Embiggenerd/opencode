@@ -13,7 +13,9 @@ import { Session } from "@opencode/schema/session"
 import { SessionEvent } from "@opencode/schema/session-event"
 import { SessionMessage } from "@opencode/schema/session-message"
 import { LayerNode } from "@opencode/util/effect/layer-node"
+import { tmpdirScoped } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
+import { caseInsensitiveTmp, caseVariant } from "./lib/path-case"
 
 const it = testEffect(
   AppNodeBuilder.build(LayerNode.group([Database.node, Bus.node, SessionProjector.node, SessionStore.node]), [
@@ -21,7 +23,7 @@ const it = testEffect(
   ]),
 )
 
-const seedSessions = (rows: { id: string; updated: number }[]) =>
+const seedSessions = (rows: { id: string; updated: number; directory?: AbsolutePath }[]) =>
   Effect.gen(function* () {
     const database = yield* Database.Service
     const bus = yield* Bus.Service
@@ -33,7 +35,7 @@ const seedSessions = (rows: { id: string; updated: number }[]) =>
         yield* bus.publish(SessionEvent.Created, {
           sessionID,
           projectID: Project.ID.global,
-          location: { directory },
+          location: { directory: row.directory ?? directory },
           slug: "store-test",
           version: "test",
         })
@@ -49,6 +51,8 @@ const seedSessions = (rows: { id: string; updated: number }[]) =>
     )
     return bus
   })
+
+const caseInsensitiveIt = caseInsensitiveTmp ? it.live : it.live.skip
 
 describe("SessionStore", () => {
   it.effect("lists by updated time and ID with exclusive two-item pages in either direction", () =>
@@ -185,6 +189,55 @@ describe("SessionStore", () => {
           cursor: { id: SessionMessage.ID.make("msg_foreign"), direction: "next" },
         }),
       ).toEqual([])
+    }),
+  )
+
+  caseInsensitiveIt("pages sessions stored under either spelling of one directory", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      const directory = AbsolutePath.make(tmp.path)
+      const variant = AbsolutePath.make(caseVariant(tmp.path))
+      // Rows recorded before canonicalization keep whichever spelling the client sent.
+      yield* seedSessions([
+        { id: "ses_a", updated: 10, directory },
+        { id: "ses_b", updated: 20, directory: variant },
+        { id: "ses_c", updated: 30, directory },
+        { id: "ses_d", updated: 40, directory: variant },
+        { id: "ses_e", updated: 50, directory },
+      ])
+      const store = yield* SessionStore.Service
+      const ids = (sessions: ReadonlyArray<{ readonly id: string }>) => sessions.map((session) => session.id)
+
+      expect(ids(yield* store.list({ directory: variant }))).toEqual(["ses_e", "ses_d", "ses_c", "ses_b", "ses_a"])
+      expect(
+        ids(
+          yield* store.list({
+            directory: variant,
+            limit: 2,
+            anchor: { id: Session.ID.make("ses_d"), time: 40, direction: "next" },
+          }),
+        ),
+      ).toEqual(["ses_c", "ses_b"])
+      expect(
+        ids(
+          yield* store.list({
+            directory: variant,
+            limit: 2,
+            anchor: { id: Session.ID.make("ses_c"), time: 30, direction: "previous" },
+          }),
+        ),
+      ).toEqual(["ses_e", "ses_d"])
+    }),
+  )
+
+  it.live("lists sessions recorded for a directory that no longer exists", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      const missing = AbsolutePath.make(caseVariant(`${tmp.path}-removed`))
+      yield* seedSessions([{ id: "ses_missing", updated: 10, directory: missing }])
+      const store = yield* SessionStore.Service
+
+      expect((yield* store.list({ directory: missing })).map((session) => String(session.id))).toEqual(["ses_missing"])
     }),
   )
 })

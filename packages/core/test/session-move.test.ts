@@ -29,6 +29,7 @@ import { tempGlobalLayer } from "./fixture/global"
 import { offlineModels } from "./fixture/models"
 import { tmpdirScoped } from "./fixture/tmpdir"
 import { testEffect } from "./lib/effect"
+import { caseInsensitiveTmp, caseVariant } from "./lib/path-case"
 import { globalProjectNode } from "./lib/project"
 
 const it = testEffect(
@@ -95,6 +96,8 @@ const itWithExecution = testEffect(
 // Windows does not enforce POSIX mode bits, and root can traverse mode-000 directories.
 const itWithPermissions =
   process.platform === "win32" || process.getuid?.() === 0 ? itWithExecution.live.skip : itWithExecution.live
+const caseInsensitiveIt = caseInsensitiveTmp ? it.live : it.live.skip
+
 const itWithInstance = testEffect(Layer.empty)
 const sourceProbe = (options: { execution?: boolean } = {}) =>
   Effect.gen(function* () {
@@ -511,6 +514,27 @@ describe("Session.move", () => {
           })
           yield* session.move({ sessionID: steered.id, directory: destination, delivery: "queue" })
           expect(yield* session.inbox(steered.id)).toMatchObject([{ type: "move", delivery: "queue" }])
+        }),
+      ),
+    ),
+  )
+
+  caseInsensitiveIt("persists the on-disk destination when moved to a case-variant path", () =>
+    tmpdirScoped().pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const source = path.join(tmp.path, "source")
+          yield* Effect.promise(() => mkdir(source))
+          const created = yield* session.create({
+            location: Location.Ref.make({ directory: AbsolutePath.make(source) }),
+          })
+          // A missing source applies the move immediately instead of queueing it.
+          yield* Effect.promise(() => rm(source, { recursive: true }))
+
+          yield* session.move({ sessionID: created.id, directory: AbsolutePath.make(caseVariant(tmp.path)) })
+
+          expect((yield* session.get(created.id)).location.directory).toBe(AbsolutePath.make(tmp.path))
         }),
       ),
     ),

@@ -41,6 +41,7 @@ import { Workspace } from "@opencode/core/workspace"
 import { SessionEvent } from "@opencode/core/session/event"
 import { SessionRunnerModel } from "@opencode/core/session/runner/model"
 import { tmpdir, tmpdirScoped } from "./fixture/tmpdir"
+import { caseInsensitiveTmp, caseVariant } from "./lib/path-case"
 import { tempGlobalLayer } from "./fixture/global"
 import { offlineModels } from "./fixture/models"
 import { testEffect } from "./lib/effect"
@@ -77,6 +78,9 @@ const itWithActivity = testEffect(
     LocationServiceMap.node.replace(activityLocations),
   ]),
 )
+
+const caseInsensitiveIt = caseInsensitiveTmp ? it.live : it.live.skip
+const caseSensitiveIt = caseInsensitiveTmp ? it.live.skip : it.live
 
 describe("LocationServiceMap", () => {
   for (const failure of ["file", "permissions", "config reference"] as const) {
@@ -449,6 +453,44 @@ describe("LocationServiceMap", () => {
         ),
       ),
     ),
+  )
+
+  caseInsensitiveIt("coalesces case variants of one directory into one cached location graph", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      const locations = yield* LocationServiceMap.Service
+      const directory = AbsolutePath.make(tmp.path)
+      const variant = Location.Ref.make({ directory: AbsolutePath.make(caseVariant(tmp.path)) })
+
+      const first = yield* locations.contextEffect(Location.Ref.make({ directory }))
+      expect(yield* locations.contextEffect(variant)).toBe(first)
+      expect(Array.from(yield* RcMap.keys(locations.rcMap))).toEqual([Location.Ref.make({ directory })])
+    }),
+  )
+
+  caseInsensitiveIt("binds a case-variant location to the on-disk directory", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      const locations = yield* LocationServiceMap.Service
+      const variant = Location.Ref.make({ directory: AbsolutePath.make(caseVariant(tmp.path)) })
+
+      const location = yield* Location.Service.pipe(Effect.provide(locations.get(variant)), Effect.scoped)
+      expect(location.directory).toBe(AbsolutePath.make(tmp.path))
+    }),
+  )
+
+  caseSensitiveIt("keeps directories that differ only in case as separate locations", () =>
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirScoped()
+      const locations = yield* LocationServiceMap.Service
+      const upper = AbsolutePath.make(path.join(tmp.path, "Proj"))
+      const lower = AbsolutePath.make(path.join(tmp.path, "proj"))
+      yield* Effect.promise(() => Promise.all([fs.mkdir(upper), fs.mkdir(lower)]))
+
+      const first = yield* locations.contextEffect(Location.Ref.make({ directory: upper }))
+      expect(yield* locations.contextEffect(Location.Ref.make({ directory: lower }))).not.toBe(first)
+      expect(Array.from(yield* RcMap.keys(locations.rcMap))).toHaveLength(2)
+    }),
   )
 
   it.live("isolates provider state by location", () =>
