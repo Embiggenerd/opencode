@@ -1,245 +1,203 @@
-# Issue #52501 — manual test guide
+# Manual testing: one folder, two spellings (issue #52501)
 
-Goal: on each machine, find out whether opencode treats **one folder** reached through **two spellings** as two
-different places. Work through your machine's checklist top to bottom and fill in the results table at the end.
+## Why we are testing
 
-## What you are looking for
+opencode remembers which folder a session belongs to by saving the folder's path **as text**. Windows and a default
+Mac ignore capitalization, so `CaseRepro/MyApp` and `caserepro/myapp` open the **same folder**, but as text they are
+different. opencode then files that folder's sessions under two different places, and users see sessions vanish or
+the same folder listed twice. On Linux the two spellings really are two different folders, and keeping them apart is
+correct.
 
-opencode remembers which folder each session belongs to by saving the folder path **as text**. On a filesystem that
-ignores case (Windows, a default Mac), `CaseRepro/MyApp` and `caserepro/myapp` open the same folder, but as text they
-are different, so opencode files sessions under two different "places". You will see it as:
+These steps are for two jobs:
 
-| Symptom | Where you see it |
-|---|---|
-| Sessions disappear | A session made with one spelling is missing when you open the folder with the other spelling |
-| The folder shows up twice | In the all-projects session list, the same folder appears as two separate entries |
-| (Desktop) sessions don't carry over | A session made in the terminal app doesn't appear when the desktop app opens the same folder |
+1. **Reproduce the bug** on each platform with the released app, in both the terminal app (TUI) and the desktop app.
+   macOS matters most: nobody has confirmed it there yet.
+2. **Test the fix** later, with the same steps, to confirm the bug is gone and nothing else broke (especially on
+   Linux, where the spellings must stay separate).
 
-On Linux the opposite is correct: `MyApp` and `myapp` really are two different folders, and must stay separate.
+## Why the steps look like this
 
-## Why the steps are the way they are
+- **A mixed-case folder name (`CaseRepro/MyApp`).** The bug needs a name whose capitalization you can change while
+  still reaching the same folder.
+- **A plain folder, not a git repo.** For a plain folder, opencode identifies the folder from its path text alone, so
+  the split always shows. For a git repo, opencode identifies the project by the repository, which can hide the split
+  in session lists.
+- **Sending `hi`.** A session only exists once its first message is sent. Any model works; the text doesn't matter.
+- **Renaming every session (`real`, `variant`, `from-desktop`, ...).** opencode titles sessions automatically from the
+  first message, so sessions that all start with `hi` look alike. Each name records **which spelling or app created
+  it**, so when you look at a list you can tell exactly which session is missing or duplicated.
+- **Quitting and reopening.** opencode fixes the folder it works in when it starts. Reopening with the other spelling
+  is what hands it the different text. If an old session tab reopens on start, ignore it and use `/sessions`.
+- **Switching the TUI session list to "current directory".** `/sessions` starts in **all projects**, which lists
+  everything and hides the problem. **ctrl+a** switches to **current directory**, which lists only the sessions
+  opencode thinks belong to this folder; that's where sessions go missing. The footer label names the scope ctrl+a
+  switches *to*. Switching back to all projects then shows the same folder under two entries.
+- **`opencode <folder>`.** Some shells pass the folder's real spelling to programs no matter what you typed.
+  `opencode <folder>` always uses exactly what you typed, so it reproduces from any shell.
+- **The desktop app.** The TUI and the desktop app share one background service, and people switch between them. A
+  session made in one and missing in the other is how users actually meet this bug.
 
-- **A mixed-case folder name (`CaseRepro/MyApp`).** The bug needs a name where changing the capitalization still
-  points at the same folder. All-lowercase names give you nothing to vary.
-- **A plain folder, not a git repo.** For a plain folder, opencode's identity for the folder comes straight from the
-  path text, so the split is guaranteed to be visible. For a git repo, opencode identifies the project by the repo
-  itself, and the session picker filters by project, which can hide the split. Try a git repo only as an extra.
-- **Sending `hi`.** A session is only created once you send its first message. Any model works; the content doesn't
-  matter.
-- **`/rename real` and `/rename variant`.** opencode titles new sessions automatically from the first message, so two
-  sessions that both started with `hi` end up with similar or identical titles (or "untitled"). Renaming gives each
-  one a label that tells you **which spelling created it**, so when you look at a list you can say exactly which
-  session is missing or duplicated.
-- **Quitting between steps.** opencode decides which folder it's working in when it starts. Restarting with the other
-  spelling is what feeds it the different text. If a previous session tab reopens on start, ignore it and use
-  `/sessions`.
-- **ctrl+a in `/sessions`.** The picker starts in **all projects** scope, which lists every session everywhere and
-  hides the problem. Press **ctrl+a** to switch to **current directory** scope, which lists only the sessions opencode
-  thinks belong to this folder; that's where sessions go missing. The footer label names the scope ctrl+a will switch
-  *to*. Switching back to all projects then shows both sessions side by side, under two entries.
-- **Opening the wrong spelling deliberately.** Shells differ in whether they pass your typed spelling or the real one
-  to programs. `opencode <folder>` always uses exactly what you typed, so it works from any shell.
+## Before you start
 
-## Before you start (every machine)
-
-- Use the installed app: `opencode --version` should print `2.0.x`. Without an installed app, run from the repo root
-  with `bun run dev --standalone <folder>` everywhere this guide says `opencode <folder>` (skip the desktop check
-  then; it needs the shared background service).
-- Use a folder path without spaces.
-- These steps create two or three throwaway sessions in your real session list. Delete them at the end.
+- Check the installed app: `opencode --version` should print `2.0.x`. Have the desktop app installed on Windows and
+  macOS.
+- Use folder paths without spaces.
+- Each run creates a few throwaway sessions in your real session list; the cleanup section removes them.
 
 ---
 
-## macOS — most important result (nobody has confirmed it yet)
+## Part 1 — Reproduce the bug (released app)
 
-Setup:
+### macOS
 
-```bash
-mkdir -p ~/CaseRepro/MyApp
-ls -d ~/caserepro/myapp
-```
+Setup: `mkdir -p ~/CaseRepro/MyApp`, then `ls -d ~/caserepro/myapp`. If it prints the folder, your drive ignores
+case (the default). If it says "No such file", your drive is case-sensitive: follow the Linux steps instead.
 
-If `ls` prints the folder, the drive ignores case (default). If it says "No such file", you have a case-sensitive
-volume; follow the Linux checklist instead.
+TUI:
 
-Steps:
+- [ ] 1. `opencode ~/CaseRepro/MyApp` → send `hi` → `/rename real` → quit.
+- [ ] 2. `opencode ~/caserepro/myapp` → `/sessions` → ctrl+a until the list shows **current directory**.
+      **Bug:** `real` is missing. Then send `hi` → `/rename variant` → quit.
+- [ ] 3. `opencode ~/CaseRepro/MyApp` → `/sessions` → current directory. **Bug:** only `real` is listed.
+- [ ] 4. ctrl+a to **all projects**. **Bug:** `real` and `variant` appear under two entries for the same folder.
 
-- [ ] 1. `cd ~/CaseRepro/MyApp && opencode` → send `hi` → `/rename real` → quit.
-- [ ] 2. `cd ~/caserepro/myapp && opencode` → `/sessions` → ctrl+a to **current directory**.
-      **Bug if** `real` is missing. Then send `hi` → `/rename variant` → quit.
-- [ ] 3. `cd ~/CaseRepro/MyApp && opencode` → `/sessions` → **current directory**.
-      **Bug if** only `real` is listed.
-- [ ] 4. ctrl+a to **all projects**. **Bug if** `real` and `variant` sit under two different entries for the same
-      folder.
-- [ ] 5. Desktop check (see [Desktop check](#desktop-check-windows-and-macos)).
+Desktop (after the TUI steps):
 
-Extras (optional):
+- [ ] 5. Open the desktop app → **Add project** → choose `CaseRepro/MyApp` in the folder dialog.
+- [ ] 6. Select the project and look at its sessions. **Bug:** `variant` (made with the lowercase spelling) is missing.
+      Check **All projects** too: note whether `MyApp` appears twice.
+- [ ] 7. In that project click **New session** → send `hi` → right-click the session → **Rename** → `from-desktop`.
+- [ ] 8. `opencode ~/caserepro/myapp` → `/sessions` → current directory. **Bug:** `from-desktop` is missing.
+- [ ] 9. Optional: in the desktop folder dialog, type the path in lowercase (press cmd+shift+G and enter
+      `~/caserepro/myapp`) instead of clicking through. Note whether the project then shows up in lowercase. If it
+      does, the desktop app can trigger the bug on its own.
 
-- [ ] Accented name: `mkdir -p ~/CaseRepro/Café`, then repeat steps 1–3 opening it once by typing the name and once
-      via `opencode "$(printf "$HOME/CaseRepro/Cafe\xcc\x81")"` (same name, the accent stored as a separate mark). Bug
-      if the sessions split. macOS treats both encodings as the same name.
-- [ ] Case-sensitive volume (control): `hdiutil create -size 100m -fs "Case-sensitive APFS" -volname CaseSens
-      ~/casesens.dmg && hdiutil attach ~/casesens.dmg`, then `mkdir /Volumes/CaseSens/MyApp` and try
-      `cd /Volumes/CaseSens/myapp`. Expected: "No such file", like Linux. Clean up with
-      `hdiutil detach /Volumes/CaseSens && rm ~/casesens.dmg`.
+### Windows
 
-## Windows
+Setup (PowerShell): `New-Item -ItemType Directory -Force "$HOME\CaseRepro\MyApp"`.
 
-Setup (PowerShell):
+TUI (works from any shell, because the folder is passed as typed):
 
-```powershell
-New-Item -ItemType Directory -Force "$HOME\CaseRepro\MyApp" | Out-Null
-```
+- [ ] 1. `opencode C:\Users\<you>\CaseRepro\MyApp` → send `hi` → `/rename real` → quit.
+- [ ] 2. `opencode c:\users\<you>\caserepro\myapp` → `/sessions` → ctrl+a to **current directory**.
+      **Bug:** `real` is missing. Send `hi` → `/rename variant` → quit.
+- [ ] 3. `opencode C:\Users\<you>\CaseRepro\MyApp` → `/sessions` → current directory. **Bug:** only `real` is listed.
+- [ ] 4. ctrl+a to **all projects**. **Bug:** two entries for the same folder.
 
-Steps:
+How users trigger it by accident (try each with a fresh session name, e.g. `/rename gitbash`):
 
-- [ ] 1. `opencode $HOME\CaseRepro\MyApp` → send `hi` → `/rename real` → quit.
-- [ ] 2. `opencode c:\users\<you>\caserepro\myapp` (type it in lowercase) → `/sessions` → ctrl+a to
-      **current directory**. **Bug if** `real` is missing. Send `hi` → `/rename variant` → quit.
-- [ ] 3. `opencode $HOME\CaseRepro\MyApp` → `/sessions` → **current directory**. **Bug if** only `real` is listed.
-- [ ] 4. ctrl+a to **all projects**. **Bug if** the two sessions sit under two entries for the same folder.
-- [ ] 5. Desktop check (see [Desktop check](#desktop-check-windows-and-macos)).
-
-Real-world launch styles (each is how users actually hit this; record which reproduce):
-
-| Shell | Wrong-spelling launch | Expected |
+| Shell | What to type | Expected |
 |---|---|---|
-| Git Bash | `cd ~/caserepro/myapp && opencode` | reproduces (Git Bash passes the typed spelling) |
-| cmd.exe | `cd /d c:\Users\<you>\CaseRepro\MyApp` then `opencode` | reproduces via the lowercase drive letter only |
-| PowerShell | `cd ~\caserepro\myapp; opencode` | **does not reproduce**: PowerShell passes the real spelling. Record as a control |
+| Git Bash | `cd ~/caserepro/myapp` then `opencode` | reproduces: Git Bash passes the typed spelling |
+| Command Prompt | `cd /d c:\Users\<you>\CaseRepro\MyApp` then `opencode` | reproduces through the lowercase drive letter alone |
+| PowerShell | `cd ~\caserepro\myapp` then `opencode` | **doesn't reproduce**: PowerShell passes the real spelling. This shows why some users never see the bug |
 
-Extras (optional):
+Desktop: same as macOS steps 5–9. For step 9, type `c:\users\<you>\caserepro\myapp` into the folder dialog's
+address bar.
 
-- [ ] Junction: `New-Item -ItemType Junction -Path "$HOME\CaseRepro\Link" -Target "$HOME\CaseRepro\MyApp"`, then
-      open `$HOME\CaseRepro\Link` and check `/sessions`. Record whether its sessions are separate from `MyApp`'s
-      (today: separate). This informs the maintainers' symlink decision.
+Optional, junction (a Windows folder shortcut):
+`New-Item -ItemType Junction -Path "$HOME\CaseRepro\Link" -Target "$HOME\CaseRepro\MyApp"`, then
+`opencode $HOME\CaseRepro\Link` → `/sessions` → current directory. Note whether `real` is listed. Today it isn't:
+the shortcut counts as a separate place. The fix may change this, so record it.
 
-## Linux (Mint / Omarchy) — the control
+### Linux (Mint / Omarchy): the control
 
-Setup:
+Here, two spellings are two different folders, and opencode must keep them apart.
 
-```bash
-mkdir -p ~/CaseRepro/MyApp
-ls -d ~/caserepro/myapp
-```
+Setup: `mkdir -p ~/CaseRepro/MyApp`, then `ls -d ~/caserepro/myapp`. **Expected:** "No such file or directory".
 
-Expected: "No such file or directory". On Linux that's a different folder name, which is correct.
+TUI:
 
-Steps:
+- [ ] 1. `opencode ~/CaseRepro/MyApp` → send `hi` → `/rename real` → quit.
+- [ ] 2. `mkdir -p ~/caserepro/myapp && opencode ~/caserepro/myapp` → `/sessions` → current directory.
+      **Correct:** `real` is not listed. Send `hi` → `/rename variant` → quit.
+- [ ] 3. `opencode ~/CaseRepro/MyApp` → `/sessions` → current directory. **Correct:** only `real` is listed.
 
-- [ ] 1. `cd ~/CaseRepro/MyApp && opencode` → send `hi` → `/rename real` → quit.
-- [ ] 2. `mkdir -p ~/caserepro/myapp && cd ~/caserepro/myapp && opencode` → `/sessions` → **current directory**.
-      **Correct if** `real` is **not** listed (this really is a different folder). Send `hi` → `/rename variant` → quit.
-- [ ] 3. `cd ~/CaseRepro/MyApp && opencode` → `/sessions` → **current directory**. **Correct if** only `real` is
-      listed.
+Desktop (if installed on Linux): add both `~/CaseRepro/MyApp` and `~/caserepro/myapp` as projects. **Correct:** two
+separate projects, each with only its own sessions.
 
-Here, separate is the right answer. These results are what a fix must not break.
+Optional, symlink: `ln -s ~/CaseRepro/MyApp ~/CaseRepro/link && opencode ~/CaseRepro/link` → `/sessions` → current
+directory. Note whether `real` is listed (today: no). Record it; the fix may change this.
 
-Extras (optional):
+### WSL
 
-- [ ] Symlink: `ln -s ~/CaseRepro/MyApp ~/CaseRepro/link && cd ~/CaseRepro/link && opencode` → `/sessions`.
-      Record whether `real` is listed (today: not, the link counts as a separate place).
+First make sure you're running the Linux version inside WSL: `which opencode` must print a path like
+`/home/<you>/...`, not one under `/mnt/c/`.
 
-## WSL
+- [ ] **Linux home folder:** follow the Linux steps inside WSL. Expected: same as Linux.
+- [ ] **Folder on the Windows drive (nobody knows yet):** in Windows create `C:\CaseRepro\MyApp`. In WSL run
+      `ls -d /mnt/c/caserepro/myapp`. If it exists, follow the macOS TUI steps using `/mnt/c/CaseRepro/MyApp` as the
+      real spelling and `/mnt/c/caserepro/myapp` as the wrong one. This is Linux software on a Windows drive that
+      ignores case.
+- [ ] **Windows app opening a WSL folder:** in WSL `mkdir -p ~/CaseRepro/MyApp`. In Windows run the TUI steps with
+      `opencode \\wsl.localhost\<distro>\home\<you>\CaseRepro\MyApp` as one spelling and
+      `opencode \\wsl$\<distro>\home\<you>\CaseRepro\MyApp` as the other. Both prefixes reach the same folder. Note
+      whether the sessions split.
 
-First make sure you're running the Linux build inside WSL: `which opencode` must print a Linux path like
-`/home/<you>/...`, not `/mnt/c/...`. (The installer has a known WSL problem that can skip the Linux install, #48153.)
+---
 
-- [ ] **W1, Linux home folder:** follow the Linux checklist inside WSL. Expected: same as Linux.
-- [ ] **W2, folder on the Windows drive (the unknown):**
-  1. In Windows: `mkdir C:\CaseRepro\MyApp`.
-  2. In WSL: `ls -d /mnt/c/caserepro/myapp`. Record whether it exists.
-  3. If it exists, follow the macOS steps with `/mnt/c/CaseRepro/MyApp` as the real spelling and
-     `/mnt/c/caserepro/myapp` as the wrong one. Record whether it splits. This is Linux software on a
-     case-ignoring Windows drive, which no one has tested.
-  4. Record what the real-path lookup returns:
-     `realpath /mnt/c/caserepro/myapp` and
-     `bun -e "console.log(require('fs').realpathSync.native(process.argv.at(-1)))" /mnt/c/caserepro/myapp`.
-     If they print the lowercase spelling, the planned fix alone won't cover this case.
-- [ ] **W3, Windows app opening a WSL folder:** in WSL `mkdir -p ~/CaseRepro/MyApp`. In PowerShell, open it twice:
-  `opencode \\wsl.localhost\<distro>\home\<you>\CaseRepro\MyApp` and
-  `opencode \\wsl$\<distro>\home\<you>\CaseRepro\MyApp` (same folder, two path prefixes). Record whether
-  `/sessions` (current directory) splits between them.
+## Part 2 — Test the fix
 
-## Desktop check (Windows and macOS)
+Run this once the fix is on the `location-path-case` branch.
 
-Why: the terminal app and the desktop app share one background service, and users switch between them. This shows
-the bug the way they meet it.
+How to run the fixed version, from the repository root on that branch, after `bun install`:
 
-- [ ] 1. In a terminal, open the **wrong spelling** (macOS `cd ~/caserepro/myapp && opencode`, Windows
-      `opencode c:\users\<you>\caserepro\myapp`) → send `hi` → `/rename from-terminal` → quit.
-- [ ] 2. In the desktop app, open `CaseRepro/MyApp` with its folder picker.
-- [ ] 3. **Bug if** `from-terminal` is missing from the desktop app's session list for that folder.
-- [ ] 4. Note whether the desktop app ever shows the folder in the lowercase spelling (recent projects, title). If
-      it does, that's another way users trigger the bug.
+- TUI: `bun run dev --standalone <folder>` wherever Part 1 says `opencode <folder>`. `--standalone` gives the fixed
+  code its own private server, so your installed background service (which still has the bug) isn't involved.
+- Desktop: `bun run dev:desktop`. Before relying on a desktop result, confirm the desktop dev build is using the
+  branch's server rather than your installed service; otherwise a desktop "pass" or "fail" says nothing about the
+  fix.
 
-## Automated tests (each machine)
+Use a **new** folder name, `CaseFix/MyApp`, so sessions left over from Part 1 don't confuse the results.
 
-Run from a checkout of the `location-path-case` branch:
+### Windows and macOS: the bug should be gone
 
-```bash
-cd packages/core
-bun run test test/location-layer.test.ts test/session-store.test.ts test/session-create.test.ts test/session-move.test.ts
-```
+- [ ] 1. Open `CaseFix/MyApp` with the real spelling → `hi` → `/rename real` → quit.
+- [ ] 2. Open it with the lowercase spelling → `/sessions` → current directory. **Fixed:** `real` is listed. Send
+      `hi` → `/rename variant` → quit.
+- [ ] 3. Real spelling again → `/sessions` → current directory. **Fixed:** both `real` and `variant` are listed.
+- [ ] 4. All projects scope. **Fixed:** one entry for the folder, not two.
+- [ ] 5. Desktop: add `CaseFix/MyApp`. **Fixed:** `real` and `variant` both appear, and a desktop session shows up in
+      the TUI with either spelling.
+- [ ] 6. Windows: repeat with Git Bash and Command Prompt launches. **Fixed:** no split from any shell.
+- [ ] 7. Ordinary use still works: open a normal project, create a session, quit, reopen. The session is still there.
 
-| Machine | Expected today |
-|---|---|
-| Windows, macOS (default) | 6 new tests fail: those demonstrate the bug |
-| Linux, WSL home | the 6 are skipped; "keeps directories that differ only in case" passes |
-| WSL on `/mnt/c` | prefix the command with `TMPDIR=/mnt/c/Users/<you>/AppData/Local/Temp`; record which group runs |
+### Linux: nothing should change
 
-Known unrelated failure on Windows: "Session.create > runs a shell command and projects the started/ended shell
-message" fails without these changes too.
+- [ ] Repeat the Linux steps with `CaseFix/MyApp` and `casefix/myapp`. **Still correct:** two separate folders, each
+      with only its own sessions. A fix that merges them is a bug.
 
-## Results table
+### Old sessions from Part 1
 
-| Machine / scenario | Wrong spelling opens? | Session missing in current-directory scope? | Two entries in all projects? | Desktop shows terminal session? | Notes |
-|---|---|---|---|---|---|
-| macOS, default APFS | | | | | |
-| Windows, `opencode <lowercase path>` | | | | | |
-| Windows, Git Bash / cmd / PowerShell | | | | n/a | |
-| Linux | | | | n/a | expected: separate |
-| WSL W1 / W2 / W3 | | | | n/a | |
+The first fix stops **new** splits; it does not merge sessions that were already split. Open `CaseRepro/MyApp` (from
+Part 1) with each spelling and record where `real` and `variant` now appear in current-directory and all-projects
+scope. Nothing should be lost in all-projects scope. Note anything that was visible before the fix and is hard to
+reach after it.
+
+### Links (if you tried them in Part 1)
+
+Repeat the junction (Windows) or symlink (Linux) check and note whether the link now shares sessions with the real
+folder. Either answer is useful: it shows the maintainers what the fix does to links.
+
+---
+
+## Results
+
+| Platform / scenario | App | Session missing with other spelling? | Folder listed twice? | Notes |
+|---|---|---|---|---|
+| macOS, default drive | TUI | | | |
+| macOS, default drive | Desktop | | | |
+| Windows, `opencode <path>` | TUI | | | |
+| Windows, Git Bash / Command Prompt / PowerShell | TUI | | | |
+| Windows | Desktop | | | |
+| Linux | TUI / Desktop | | | expected: kept separate |
+| WSL, home / Windows drive / `\\wsl` prefixes | TUI | | | |
+| **After the fix**, each row above | | | | |
 
 ## Cleanup
 
-- Delete the test sessions: in `/sessions`, select each and use **delete** (shown in the picker footer), or
-  `opencode session delete <sessionID>`.
-- Remove the folders: `rm -rf ~/CaseRepro ~/caserepro` (macOS/Linux/WSL), `Remove-Item -Recurse $HOME\CaseRepro`
-  and `C:\CaseRepro` (Windows).
-
----
-
-## Appendix: API commands (exact output for the issue comment)
-
-Same checks without the UI, useful for pasting precise results. They create sessions with `--standalone`, which runs a
-private server per command. Use operation IDs (`session.list`), not raw `/api/...` paths: Git Bash rewrites arguments
-that start with `/`.
-
-bash / zsh (set `REAL` and `VARIANT` to the two spellings first):
-
-```bash
-oc() { opencode "$@" --standalone; }
-oc api session.create -d "{\"location\":{\"directory\":\"$REAL\"},\"title\":\"real\"}"
-oc api session.create -d "{\"location\":{\"directory\":\"$VARIANT\"},\"title\":\"variant\"}"
-oc api session.list --param "directory=$REAL"
-oc api session.list --param "directory=$VARIANT"
-oc api location.get --param "location[directory]=$REAL"
-oc api location.get --param "location[directory]=$VARIANT"
-```
-
-PowerShell 7 (Windows PowerShell 5.1 mangles the quotes):
-
-```powershell
-function oc { opencode @args --standalone }
-oc api session.create -d (@{ location = @{ directory = $REAL }; title = "real" } | ConvertTo-Json -Compress)
-oc api session.create -d (@{ location = @{ directory = $VARIANT }; title = "variant" } | ConvertTo-Json -Compress)
-oc api session.list --param "directory=$REAL"
-oc api session.list --param "directory=$VARIANT"
-oc api location.get --param "location[directory]=$REAL"
-oc api location.get --param "location[directory]=$VARIANT"
-```
-
-Bug looks like: the variant session's `directory` is the typed spelling; each `session.list` returns only its own
-session; the two `location.get` calls return different `project.id` values. Reference result (Windows 11, `v2`
-source, 2026-10-07): all three reproduced.
+- Delete the test sessions: TUI `/sessions` → select a session → **delete** (shown in the footer); desktop:
+  right-click the session.
+- Remove the projects you added in the desktop app.
+- Delete the folders: `~/CaseRepro`, `~/caserepro`, `~/CaseFix`, `~/casefix` (macOS, Linux, WSL),
+  `C:\Users\<you>\CaseRepro`, `C:\Users\<you>\CaseFix` and `C:\CaseRepro` (Windows).
